@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "900552169922",
+    "project_id": "mohsin-speech-practice-reehan",
+    "storage_bucket": "mohsin-speech-practice-reehan.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:900552169922:android:59b55f187324c77e261e5b",
+        "android_client_info": {
+          "package_name": "com.cubestem.mohsin_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBTYGaDl17ALWY_98qIkj0YRceNmrhxeCE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
