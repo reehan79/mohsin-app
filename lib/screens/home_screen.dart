@@ -261,12 +261,12 @@ class _HomeScreenState extends State<HomeScreen> {
         return RefreshIndicator(
           onRefresh: _refreshPlan,
           child: ListView.builder(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
             itemCount: plan.sessions.length,
             itemBuilder: (BuildContext context, int index) {
               final SessionPlan session = plan.sessions[index];
               return Padding(
-                padding: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.only(bottom: 16),
                 child: SessionCard(
                   session: session,
                   onStart: () => _openPractice(session),

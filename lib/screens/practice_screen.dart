@@ -7,8 +7,8 @@ import '../models/session_plan.dart';
 import '../models/task_item.dart';
 import '../services/attempt_service.dart';
 import '../services/auth_service.dart';
+import '../services/background_upload_service.dart';
 import '../services/recording_service.dart';
-import '../services/storage_service.dart';
 import 'done_screen.dart';
 
 class PracticeScreen extends StatefulWidget {
@@ -22,7 +22,6 @@ class PracticeScreen extends StatefulWidget {
 
 class _PracticeScreenState extends State<PracticeScreen> {
   final RecordingService _recordingService = RecordingService();
-  final StorageService _storageService = StorageService();
   final AttemptService _attemptService = AttemptService();
   final AuthService _authService = AuthService();
   final Uuid _uuid = const Uuid();
@@ -35,11 +34,36 @@ class _PracticeScreenState extends State<PracticeScreen> {
   int _totalAttempts = 0;
   int _uploadedCount = 0;
   int _pendingCount = 0;
-  String? _currentRecordPath;
+  String? _statusHint;
 
   TaskItem get _task => widget.session.tasks[_taskIndex];
   String get _dateString => DateFormat('yyyy-MM-dd').format(DateTime.now());
   int get _taskCount => widget.session.tasks.length;
+
+  int get _totalRepetitionsInSession {
+    int sum = 0;
+    for (final TaskItem t in widget.session.tasks) {
+      sum += t.repetitions;
+    }
+    return sum;
+  }
+
+  int get _completedRepetitionsBeforeCurrent {
+    int sum = 0;
+    for (int i = 0; i < _taskIndex; i++) {
+      sum += widget.session.tasks[i].repetitions;
+    }
+    sum += _repetition - 1;
+    return sum;
+  }
+
+  double get _sessionProgress {
+    final int total = _totalRepetitionsInSession;
+    if (total <= 0) {
+      return 0;
+    }
+    return (_completedRepetitionsBeforeCurrent / total).clamp(0.0, 1.0);
+  }
 
   @override
   void dispose() {
@@ -60,9 +84,10 @@ class _PracticeScreenState extends State<PracticeScreen> {
     try {
       setState(() {
         _isBusy = true;
+        _statusHint = null;
       });
 
-      final String path = await _recordingService.startRecording(
+      await _recordingService.startRecording(
         date: _dateString,
         sessionId: widget.session.sessionId,
         taskId: _task.taskId,
@@ -70,7 +95,6 @@ class _PracticeScreenState extends State<PracticeScreen> {
       );
 
       setState(() {
-        _currentRecordPath = path;
         _recordStartTime = DateTime.now();
         _isRecording = true;
       });
@@ -102,15 +126,6 @@ class _PracticeScreenState extends State<PracticeScreen> {
           ? null
           : now.difference(_recordStartTime!).inMilliseconds / 1000.0;
 
-      final StorageUploadResult? uploadResult =
-          await _storageService.uploadAudioFile(
-        localAudioPath: localPath,
-        date: _dateString,
-        sessionId: widget.session.sessionId,
-        taskId: _task.taskId,
-        repetitionNumber: _repetition,
-      );
-
       final String attemptId = _uuid.v4();
       final Attempt attempt = Attempt(
         attemptId: attemptId,
@@ -123,9 +138,9 @@ class _PracticeScreenState extends State<PracticeScreen> {
         language: _task.language,
         targetSound: _task.targetSound,
         localAudioPath: localPath,
-        cloudAudioPath: uploadResult?.downloadUrl ?? uploadResult?.cloudPath,
+        cloudAudioPath: null,
         durationSeconds: durationSeconds,
-        uploadStatus: uploadResult == null ? 'pending' : 'uploaded',
+        uploadStatus: 'pending',
         createdAt: now,
       );
 
@@ -133,27 +148,47 @@ class _PracticeScreenState extends State<PracticeScreen> {
         await _attemptService.saveAttempt(attempt);
       } catch (_) {
         _showMessage('Could not save attempt metadata.');
+        return;
       }
 
       setState(() {
         _totalAttempts += 1;
-        if (uploadResult == null) {
-          _pendingCount += 1;
-        } else {
-          _uploadedCount += 1;
-        }
+        _pendingCount += 1;
+        _statusHint =
+            'Recording saved\nUploading in background';
       });
+
+      BackgroundUploadService.instance.enqueue(
+        BackgroundUploadJob(
+          attemptId: attemptId,
+          localAudioPath: localPath,
+          date: _dateString,
+          sessionId: widget.session.sessionId,
+          taskId: _task.taskId,
+          repetitionNumber: _repetition,
+          onSuccess: () {
+            if (!mounted) {
+              return;
+            }
+            setState(() {
+              _pendingCount -= 1;
+              _uploadedCount += 1;
+            });
+          },
+        ),
+      );
 
       _goToNextStep();
     } catch (_) {
       _showMessage('Recording stop failed.');
     } finally {
-      setState(() {
-        _isBusy = false;
-        _isRecording = false;
-        _recordStartTime = null;
-        _currentRecordPath = null;
-      });
+      if (mounted) {
+        setState(() {
+          _isBusy = false;
+          _isRecording = false;
+          _recordStartTime = null;
+        });
+      }
     }
   }
 
@@ -181,6 +216,7 @@ class _PracticeScreenState extends State<PracticeScreen> {
       } else {
         _repetition += 1;
       }
+      _statusHint = null;
     });
   }
 
@@ -195,42 +231,136 @@ class _PracticeScreenState extends State<PracticeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final TextTheme textTheme = theme.textTheme;
+
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.session.title),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Task ${_taskIndex + 1} of $_taskCount'),
-            Text('Repetition $_repetition of ${_task.repetitions}'),
-            const SizedBox(height: 16),
-            Text(
-              _task.text,
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: 8),
-            Text(_task.instruction),
-            const SizedBox(height: 6),
-            Text('Target sound: ${_task.targetSound}'),
-            Text('Language: ${_task.language}'),
-            const Spacer(),
-            if (_isRecording && _currentRecordPath != null)
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
               Text(
-                'Recording to: $_currentRecordPath',
-                style: Theme.of(context).textTheme.bodySmall,
+                'Task ${_taskIndex + 1} of $_taskCount',
+                style: textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _isBusy ? null : _onRecordPressed,
-                child: Text(_isRecording ? 'Stop recording' : 'Record repetition'),
+              const SizedBox(height: 4),
+              Text(
+                'Repetition $_repetition of ${_task.repetitions}',
+                style: textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-            ),
-          ],
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: LinearProgressIndicator(
+                  value: _sessionProgress,
+                  minHeight: 8,
+                ),
+              ),
+              const SizedBox(height: 24),
+              Expanded(
+                child: Card(
+                  elevation: 0,
+                  color: theme.colorScheme.surfaceContainerHighest
+                      .withValues(alpha: 0.35),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            _task.text,
+                            style: textTheme.headlineSmall?.copyWith(
+                              height: 1.25,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            _task.instruction,
+                            style: textTheme.bodyLarge,
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Target sound: ${_task.targetSound}',
+                            style: textTheme.bodyMedium,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Language: ${_task.language}',
+                            style: textTheme.bodyMedium,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              if (_isRecording)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Row(
+                    children: <Widget>[
+                      Container(
+                        width: 12,
+                        height: 12,
+                        decoration: const BoxDecoration(
+                          color: Colors.red,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        'Recording...',
+                        style: textTheme.titleMedium?.copyWith(
+                          color: theme.colorScheme.error,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              if (_statusHint != null && !_isRecording)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Text(
+                    _statusHint!,
+                    style: textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                ),
+              SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: FilledButton(
+                  onPressed: _isBusy ? null : _onRecordPressed,
+                  style: FilledButton.styleFrom(
+                    textStyle: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  child: Text(
+                    _isRecording ? 'Stop Recording' : 'Start Recording',
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -1,6 +1,7 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
+import 'scaffold_messenger_key.dart';
 import 'screens/home_screen.dart';
 
 Future<void> main() async {
@@ -15,6 +16,7 @@ class MohsinSpeechPracticeApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      scaffoldMessengerKey: rootScaffoldMessengerKey,
       title: 'Mohsin Speech Practice',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blueGrey),

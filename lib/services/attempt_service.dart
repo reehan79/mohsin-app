@@ -43,4 +43,15 @@ class AttemptService {
             Attempt.fromMap(doc.data()))
         .toList(growable: false);
   }
+
+  Future<List<Attempt>> queryPendingAttempts() async {
+    final QuerySnapshot<Map<String, dynamic>> snapshot = await _attemptsCollection
+        .where('upload_status', isEqualTo: 'pending')
+        .get();
+
+    return snapshot.docs
+        .map((QueryDocumentSnapshot<Map<String, dynamic>> doc) =>
+            Attempt.fromMap(doc.data()))
+        .toList(growable: false);
+  }
 }
