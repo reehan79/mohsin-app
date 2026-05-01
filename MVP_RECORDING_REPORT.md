@@ -50,8 +50,16 @@
 ## 3. Firestore paths used
 - Daily plan read:
   - `users/mohsin/plans/YYYY-MM-DD`
+- Daily plan write (MVP only, when document is missing):
+  - Same path as above; the app calls `set` only if the document does not exist. Firestore security rules must allow this create for testing.
 - Attempt metadata write/read:
   - `users/mohsin/attempts/{attempt_id}`
+
+## Automatic Test Plan Seeding
+- The app creates `users/mohsin/plans/YYYY-MM-DD` automatically when that document is missing, using a fixed default schedule (`plan_version: v0.1-auto`, `schedule_type: test_day`, evening session with sample word/sentence tasks).
+- This is for **MVP testing only** so daily plans do not need to be created by hand in the Firebase Console.
+- Existing documents are **never** overwritten; seeding runs only when the document is absent.
+- Later, a parent or admin flow will upload tailored plans instead of this default.
 
 ## 4. Firebase Storage paths used
 - Audio upload:
