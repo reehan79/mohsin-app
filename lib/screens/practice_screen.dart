@@ -9,6 +9,7 @@ import '../services/attempt_service.dart';
 import '../services/auth_service.dart';
 import '../services/background_upload_service.dart';
 import '../services/recording_service.dart';
+import '../services/reminder_service.dart';
 import 'done_screen.dart';
 
 class PracticeScreen extends StatefulWidget {
@@ -178,7 +179,7 @@ class _PracticeScreenState extends State<PracticeScreen> {
         ),
       );
 
-      _goToNextStep();
+      await _goToNextStep();
     } catch (_) {
       _showMessage('Recording stop failed.');
     } finally {
@@ -192,11 +193,16 @@ class _PracticeScreenState extends State<PracticeScreen> {
     }
   }
 
-  void _goToNextStep() {
+  Future<void> _goToNextStep() async {
     final bool lastRepetition = _repetition >= _task.repetitions;
     final bool lastTask = _taskIndex >= _taskCount - 1;
 
     if (lastRepetition && lastTask) {
+      await ReminderService.instance
+          .cancelSessionFollowUp(widget.session.sessionId);
+      if (!mounted) {
+        return;
+      }
       Navigator.of(context).pushReplacement(
         MaterialPageRoute<void>(
           builder: (_) => DoneScreen(

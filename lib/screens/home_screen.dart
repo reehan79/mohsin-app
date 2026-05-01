@@ -5,6 +5,7 @@ import '../models/daily_plan.dart';
 import '../models/session_plan.dart';
 import '../services/auth_service.dart';
 import '../services/plan_service.dart';
+import '../services/reminder_service.dart';
 import '../widgets/session_card.dart';
 import 'parent_review_screen.dart';
 import 'practice_screen.dart';
@@ -31,6 +32,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
   _HomePhase _phase = _HomePhase.loading;
   DailyPlan? _plan;
+  bool _remindersScheduled = false;
+
+  Future<bool> _applyRemindersForPlan(DailyPlan plan) async {
+    await ReminderService.instance.cancelAllReminders();
+    if (plan.sessions.isEmpty) {
+      return false;
+    }
+    await ReminderService.instance.scheduleSessionReminders(plan);
+    return true;
+  }
 
   @override
   void initState() {
@@ -45,6 +56,7 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _phase = _HomePhase.loading;
       _plan = null;
+      _remindersScheduled = false;
     });
 
     try {
@@ -101,16 +113,26 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     if (plan.sessions.isEmpty) {
+      final bool remindersOn = await _applyRemindersForPlan(plan);
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _phase = _HomePhase.noSessions;
         _plan = plan;
+        _remindersScheduled = remindersOn;
       });
       return;
     }
 
+    final bool remindersOn = await _applyRemindersForPlan(plan);
+    if (!mounted) {
+      return;
+    }
     setState(() {
       _phase = _HomePhase.content;
       _plan = plan;
+      _remindersScheduled = remindersOn;
     });
   }
 
@@ -122,7 +144,10 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) {
       return;
     }
-    setState(() => _phase = _HomePhase.loading);
+    setState(() {
+      _phase = _HomePhase.loading;
+      _remindersScheduled = false;
+    });
 
     try {
       await _authService.signInAnonymously();
@@ -136,15 +161,25 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
       if (plan.sessions.isEmpty) {
+        final bool remindersOn = await _applyRemindersForPlan(plan);
+        if (!mounted) {
+          return;
+        }
         setState(() {
           _phase = _HomePhase.noSessions;
           _plan = plan;
+          _remindersScheduled = remindersOn;
         });
+        return;
+      }
+      final bool remindersOn = await _applyRemindersForPlan(plan);
+      if (!mounted) {
         return;
       }
       setState(() {
         _phase = _HomePhase.content;
         _plan = plan;
+        _remindersScheduled = remindersOn;
       });
     } catch (_) {
       if (mounted) {
@@ -153,15 +188,38 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _debugScheduleTestReminder() async {
+    await ReminderService.instance.scheduleDebugReminderInSeconds(10);
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Test notification in about 10 seconds.'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   Widget _debugTestPlanButton() {
     if (!kDebugMode) {
       return const SizedBox.shrink();
     }
     return Padding(
       padding: const EdgeInsets.only(top: 16),
-      child: OutlinedButton(
-        onPressed: _debugCreateTestPlan,
-        child: const Text('Create Test Plan'),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          OutlinedButton(
+            onPressed: _debugCreateTestPlan,
+            child: const Text('Create Test Plan'),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton(
+            onPressed: _debugScheduleTestReminder,
+            child: const Text('Test reminder in 10 seconds'),
+          ),
+        ],
       ),
     );
   }
@@ -258,13 +316,29 @@ class _HomeScreenState extends State<HomeScreen> {
             'Today\'s plan has no sessions.',
           );
         }
+        final bool showReminderBanner = _remindersScheduled;
         return RefreshIndicator(
           onRefresh: _refreshPlan,
           child: ListView.builder(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-            itemCount: plan.sessions.length,
+            itemCount:
+                plan.sessions.length + (showReminderBanner ? 1 : 0),
             itemBuilder: (BuildContext context, int index) {
-              final SessionPlan session = plan.sessions[index];
+              if (showReminderBanner && index == 0) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Text(
+                    'Reminders are active',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                );
+              }
+              final int sessionIndex =
+                  showReminderBanner ? index - 1 : index;
+              final SessionPlan session = plan.sessions[sessionIndex];
               return Padding(
                 padding: const EdgeInsets.only(bottom: 16),
                 child: SessionCard(

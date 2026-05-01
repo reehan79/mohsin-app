@@ -3,10 +3,12 @@ import 'package:flutter/material.dart';
 
 import 'scaffold_messenger_key.dart';
 import 'screens/home_screen.dart';
+import 'services/reminder_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+  await ReminderService.instance.initialize();
   runApp(const MohsinSpeechPracticeApp());
 }
 
